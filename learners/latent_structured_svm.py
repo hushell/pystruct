@@ -43,7 +43,7 @@ class LatentSSVM(BaseSSVM):
 
                 # update constraints:
                 if isinstance(self.base_ssvm, StructuredSVM):
-                    constraints = [[] for i in xrange(len(X))]
+                    constraints = [[] for i in xrange(len(X))] # one constraint for each sample
                     for sample, h, i in zip(self.base_ssvm.constraints_, H_new,
                                             np.arange(len(X))):
                         for constraint in sample:

@@ -17,6 +17,9 @@ def test_with_crosses():
         for inference_method in ['lp']:
             X, Y = toy.generate_crosses(n_samples=10, noise=5, n_crosses=1,
                                         total_size=8)
+            import ipdb
+            ipdb.set_trace()
+
             n_labels = 2
             crf = LatentGridCRF(n_labels=n_labels,
                                 n_states_per_label=n_states_per_label,
@@ -93,3 +96,6 @@ def test_directional_bars():
         Y_pred = clf.predict(X)
 
         assert_array_equal(np.array(Y_pred), Y)
+
+if __name__ == "__main__":
+    test_with_crosses()
