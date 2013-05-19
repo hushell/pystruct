@@ -9,8 +9,12 @@ from ..utils import make_grid_edges
 class LatentTRF(GridCRF):
     """Latent topic TRF with grid graph.
     """
-    def __init__(self, n_states, n_classes, n_features,
+    def __init__(self, n_states, n_classes, n_features, class_weight=None,
                  inference_method='lp'):
+        """
+        n_features : size of dict
+        n_states   : num of topics per class
+        """
         GridCRF.__init__(self, n_states, n_features,
                           inference_method=inference_method)
 
@@ -20,17 +24,24 @@ class LatentTRF(GridCRF):
         self.n_features = n_features # size of dict
 
         # TODO: add class_weights
+        # self.rescale_C = rescale_C
+        if class_weight is not None:
+            if len(class_weight) != n_classes:
+                raise ValueError("class_weight must have length n_classes or"
+                                 " be None")
+            class_weight = np.array(class_weight)
+        else:
+            class_weight = np.ones(n_classes)
+        self.class_weight = class_weight
 
         # one weight-vector per class
-        self.size_psi = n_classes * (n_features + n_states
+        self.size_psi = n_classes * (n_states * n_features + n_states
                           + n_states * (n_states+1) / 2)
 
     def init_latent(self, X, Y):
-        # treat all edges the same
-        edges = [[self.get_edges(x)] for x in X]
-        features = np.array([self.get_features(x) for x in X])
-        return kmeans_init(features, Y, edges, n_labels=self.n_labels,
-                           n_states_per_label=self.n_states_per_label)
+        """ randomly or load from PLSA results
+        """
+        return np.random.randint(low=0, high=self.n_states, size=Y.shape)
 
     def get_edges(self, x):
         """ x, shape (h, w, n_features)
@@ -54,8 +65,8 @@ class LatentTRF(GridCRF):
         y : class
 
         w : ndarray, shape=(size_psi,)
-            [ ..., beta^i_1,theta^i_1, ..., beta^i_K,theta^i_K, ... ]
-            [ ..., M,       1,         ..., M,       1,         ... ]
+            [ ..., beta^i_1,theta^i_1, ..., beta^i_K,theta^i_K, eta^i,     ... ]
+            [ ..., M,       1,         ..., M,       1,         K*(K+1)/2, ... ]
 
         Returns
         -------
@@ -65,10 +76,10 @@ class LatentTRF(GridCRF):
         self._check_size_w(w)
         self._check_size_x(x)
         features, edges = self.get_features(x), self.get_edges(x)
-        unit_len = self.n_states * self.n_features + self.n_states;
-        unary_params = w[y * unit_len : (y+1) * unit_len].reshape(
+        unary_len = self.n_states * self.n_features + self.n_states;
+        pair_len = self.n_states * (self.n_states + 1) / 2
+        unary_params = w[y * (unary_len+pair_len) : (y+1) * (unary_len+pair_len) - pair_len].reshape(
             self.n_states, self.n_features + 1)
-
         return np.dot(features, unary_params.T)
 
     def get_pairwise_potentials(self, x, y, w):
@@ -92,9 +103,9 @@ class LatentTRF(GridCRF):
         self._check_size_w(w)
         self._check_size_x(x)
 
-        unary_offset = self.n_classes * (self.n_states * self.n_features + self.n_states)
-        unit_len = self.n_states * (self.n_states + 1) / 2
-        pairwise_flat = np.asarray(w[unary_offset + y * unit_len : unary_offset + (y+1) * unit_len])
+        unary_len = self.n_states * self.n_features + self.n_states;
+        pair_len = self.n_states * (self.n_states + 1) / 2
+        pairwise_flat = np.asarray(w[y * (unary_len+pair_len) + unary_len : (y+1) * (unary_len+pair_len)])
 
         pairwise_params = np.zeros((self.n_states, self.n_states))
         # set lower triangle of matrix, then make symmetric
@@ -127,12 +138,14 @@ class LatentTRF(GridCRF):
         features, edges = self.get_features(x), self.get_edges(x)
         n_nodes = features.shape[0]
 
+        h,y = h
+
         if isinstance(h, tuple):
             # TODO: refine later
             # h can also be continuous (from lp)
             # in this case, it comes with accumulated edge marginals
             # h is result of relaxation, tuple of unary and pairwise marginals
-            unary_marginals, pw = y
+            unary_marginals, pw = h
             unary_marginals = unary_marginals.reshape(n_nodes, self.n_states)
             # accumulate pairwise
             pw = pw.reshape(-1, self.n_states, self.n_states).sum(axis=0)
@@ -140,7 +153,7 @@ class LatentTRF(GridCRF):
             h = h.reshape(n_nodes)
             gx = np.ogrid[:n_nodes]
 
-            #make one hot encoding
+            #make one shot encoding
             unary_marginals = np.zeros((n_nodes, self.n_states), dtype=np.int)
             gx = np.ogrid[:n_nodes]
             unary_marginals[gx, h] = 1 # final matrix of hidden, sum column = 1
@@ -160,18 +173,11 @@ class LatentTRF(GridCRF):
 
         psi_vector = np.hstack([unaries_acc.ravel(),
                                 pw[np.tri(self.n_states, dtype=np.bool)]])
-        return psi_vector
+        #return psi_vector
 
-        #result = np.zeros((self.n_classes, self.size_psi / self.n_classes))
-        #result[y,:] = psi_vector
-        #return result
-
-        #result = np.zeros((self.n_states, self.n_features, self.n_classes))
-        #for t in xrange(self.n_states):
-        #    indx = np.mgrid[0:height,0:width];
-
-        #    result[t,:,y] = np.sum(x & (h==t), axis=0)
-        #return result.ravel()
+        result = np.zeros((self.n_classes, self.size_psi / self.n_classes))
+        result[y,:] = psi_vector
+        return result.ravel()
 
     def inference(self, x, w, relaxed=None, return_energy=False):
         """Inference for x using parameters w.
@@ -194,38 +200,66 @@ class LatentTRF(GridCRF):
             Predicted class label.
         """
         self.inference_calls += 1
-        scores = np.dot(w.reshape(self.n_classes, -1), self.psi(x, w))
+
+        scores = np.zeros(self.n_classes)
+        for i in xrange(self.n_classes):
+            h = self.latent(x, i, w)
+            scores[i] = np.dot(w, self.psi(x, h))
+
         if return_energy:
             return np.argmax(scores), np.max(scores)
         return np.argmax(scores)
 
     def loss_augmented_inference(self, x, h, w, relaxed=False,
                                  return_energy=False):
-        self.inference_calls += 1
-        self._check_size_w(w)
-        unary_potentials = self.get_unary_potentials(x, w)
-        pairwise_potentials = self.get_pairwise_potentials(x, w)
-        edges = self.get_edges(x)
-        # do loss-augmentation
-        for l in np.arange(self.n_states):
-            # for each class, decrement features
-            # for loss-agumention
-            unary_potentials[self.label_from_latent(h)
-                             != self.label_from_latent(l), l] += 1.
+        """Loss-augmented inference for x and y using parameters w.
 
-        return inference_dispatch(unary_potentials, pairwise_potentials, edges,
-                                  self.inference_method, relaxed=relaxed,
-                                  return_energy=return_energy)
+        Minimizes over y_hat:
+        np.dot(psi(x, y_hat), w) + loss(y, y_hat)
+
+        Parameters
+        ----------
+        x : ndarray, shape (n_features,)
+            Unary evidence / input to augment.
+
+        y : int
+            Ground truth labeling relative to which the loss
+            will be measured.
+
+        w : ndarray, shape (size_psi,)
+            Weights that will be used for inference.
+
+        Returns
+        -------
+        y_hat : int
+            Label with highest sum of loss and score.
+        """
+        self.inference_calls += 1
+        scores = np.zeros(self.n_classes)
+        for i in xrange(self.n_classes):
+            h = self.latent(x, i, w)
+            scores[i] = np.dot(w, self.psi(x, h))
+
+        other_classes = np.arange(self.n_states) != y
+        scores[other_classes] += self.class_weight[y] #TODO: diff weights for diff classes
+        #if self.rescale_C:
+        #    scores[other_classes] += 1
+        #else:
+        #    scores[other_classes] += self.class_weight[y]
+
+        if return_energy:
+            return np.argmax(scores), np.max(scores)
+        return np.argmax(scores)
 
     def latent(self, x, y, w):
-        # TODO: let h encode y
         unary_potentials = self.get_unary_potentials(x, y, w)
         pairwise_potentials = self.get_pairwise_potentials(x, y, w)
         edges = self.get_edges(x)
         h = inference_dispatch(unary_potentials, pairwise_potentials, edges,
                                self.inference_method, relaxed=False)
-        return h
+        return (h, y)
 
+    # TODO: continuous LOSS
     def loss(self, y, y_hat):
         return self.class_weight[y] * (y != y_hat)
 
