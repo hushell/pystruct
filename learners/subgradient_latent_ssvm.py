@@ -130,7 +130,11 @@ class LatentSubgradientSSVM(SubgradientSSVM):
 
                 if self.n_jobs == 1:
                     # online learning
+                    cnt = 0
                     for x, y in zip(X, Y):
+                        if self.verbose > 0:
+                            print cnt
+                            cnt = cnt + 1
                         h = self.model.latent(x, y, self.w)
                         h_hat = self.model.loss_augmented_inference(
                             x, h, self.w, relaxed=True)

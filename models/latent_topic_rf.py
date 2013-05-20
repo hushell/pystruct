@@ -2,9 +2,10 @@ import numpy as np
 
 from .base import StructuredModel
 from .utils import crammer_singer_psi
-from . import GridCRF, DirectionalGridCRF
+from . import GridCRF
 #from .latent_graph_crf import kmeans_init, LatentGraphCRF
 from ..utils import make_grid_edges
+from ..inference import inference_dispatch
 
 class LatentTRF(GridCRF):
     """Latent topic TRF with grid graph.
@@ -51,8 +52,8 @@ class LatentTRF(GridCRF):
     def get_features(self, x):
         """ return shape (h*w, n_features + 1)
         """
-        x = np.dstack((x, np.ones(x.shape[0],x.shape[1])))
-        return x.reshape(-1, self.n_features + 1)
+        #x = np.dstack((x, np.ones(x.shape[:-1])))
+        return x.reshape(-1, self.n_features)
 
     def get_unary_potentials(self, x, y, w):
         """Computes unary potentials for x and w.
@@ -74,8 +75,10 @@ class LatentTRF(GridCRF):
             Unary weights.
         """
         self._check_size_w(w)
-        self._check_size_x(x)
+        #self._check_size_x(x)
         features, edges = self.get_features(x), self.get_edges(x)
+        features = np.hstack((features, np.ones((features.shape[0], 1))))
+
         unary_len = self.n_states * self.n_features + self.n_states;
         pair_len = self.n_states * (self.n_states + 1) / 2
         unary_params = w[y * (unary_len+pair_len) : (y+1) * (unary_len+pair_len) - pair_len].reshape(
@@ -235,12 +238,15 @@ class LatentTRF(GridCRF):
             Label with highest sum of loss and score.
         """
         self.inference_calls += 1
-        scores = np.zeros(self.n_classes)
-        for i in xrange(self.n_classes):
-            h = self.latent(x, i, w)
-            scores[i] = np.dot(w, self.psi(x, h))
 
-        other_classes = np.arange(self.n_states) != y
+        h,y = h
+        scores = np.zeros(self.n_classes)
+        h_hat = np.zeros((self.n_classes, h.shape[0]), dtype=np.int) # h has been flatten already
+        for i in xrange(self.n_classes):
+            h_hat[i],_ = self.latent(x, i, w)
+            scores[i] = np.dot(w, self.psi(x, (h_hat[i],i)))
+
+        other_classes = np.arange(self.n_classes) != y
         scores[other_classes] += self.class_weight[y] #TODO: diff weights for diff classes
         #if self.rescale_C:
         #    scores[other_classes] += 1
@@ -249,7 +255,8 @@ class LatentTRF(GridCRF):
 
         if return_energy:
             return np.argmax(scores), np.max(scores)
-        return np.argmax(scores)
+        y_hat = np.argmax(scores)
+        return (h_hat[y_hat], y_hat)
 
     def latent(self, x, y, w):
         unary_potentials = self.get_unary_potentials(x, y, w)
@@ -257,10 +264,14 @@ class LatentTRF(GridCRF):
         edges = self.get_edges(x)
         h = inference_dispatch(unary_potentials, pairwise_potentials, edges,
                                self.inference_method, relaxed=False)
+        h.astype(np.int)
         return (h, y)
 
     # TODO: continuous LOSS
-    def loss(self, y, y_hat):
+    # TODO: lots of other tricks can be applied here instead of 0-1 loss
+    def loss(self, h, h_hat):
+        h,y = h
+        h_hat,y_hat = h_hat
         return self.class_weight[y] * (y != y_hat)
 
     #def loss(self, h, h_hat):
