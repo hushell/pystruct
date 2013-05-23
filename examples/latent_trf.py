@@ -30,7 +30,7 @@ crf = LatentTRF(n_states = 4, n_classes = 2, n_features = 200)
 
 clf = LatentSubgradientSSVM(
     model=crf, max_iter=500, C=10., verbose=2,
-    n_jobs=1, learning_rate=0.1, show_loss_every=10)
+    n_jobs=-1, learning_rate=0.1, show_loss_every=10)
 
 import ipdb
 ipdb.set_trace()

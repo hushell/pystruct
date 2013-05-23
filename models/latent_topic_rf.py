@@ -202,16 +202,18 @@ class LatentTRF(GridCRF):
         y_pred : int
             Predicted class label.
         """
-        self.inference_calls += 1
+        #self.inference_calls += 1
 
         scores = np.zeros(self.n_classes)
+        h = np.zeros((self.n_classes, x.shape[1]*x.shape[2]), dtype=np.int) # h has been flatten already
         for i in xrange(self.n_classes):
-            h = self.latent(x, i, w)
-            scores[i] = np.dot(w, self.psi(x, h))
+            h[i],_ = self.latent(x, i, w)
+            scores[i] = np.dot(w, self.psi(x, (h[i],i)))
 
         if return_energy:
             return np.argmax(scores), np.max(scores)
-        return np.argmax(scores)
+        y = np.argmax(scores)
+        return (h[y], y)
 
     def loss_augmented_inference(self, x, h, w, relaxed=False,
                                  return_energy=False):
@@ -270,8 +272,12 @@ class LatentTRF(GridCRF):
     # TODO: continuous LOSS
     # TODO: lots of other tricks can be applied here instead of 0-1 loss
     def loss(self, h, h_hat):
-        h,y = h
-        h_hat,y_hat = h_hat
+        if isinstance(h, tuple):
+            h,y = h
+            h_hat,y_hat = h_hat
+        else:
+            y = h
+            y_hat = h_hat
         return self.class_weight[y] * (y != y_hat)
 
     #def loss(self, h, h_hat):
