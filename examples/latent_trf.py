@@ -26,7 +26,7 @@ for i in xrange(num1+num2):
         X[i] = X2[0,i-X1.size]
         Y[i] = 1
 
-crf = LatentTRF(n_states = 4, n_classes = 2, n_features = 200)
+crf = LatentTRF(n_states = 4, n_classes = 2, n_features = 200, inference_method='qpbo')
 
 import pickle
 
@@ -37,6 +37,9 @@ except:
         model=crf, max_iter=500, C=10., verbose=2,
         n_jobs=-1, learning_rate=0.1, show_loss_every=10)
     clf.fit(X, Y)
+
+import pickle
+pickle.dump(clf, open("clf_c12_t4_qpbo.p", "wb"))
 
 #import ipdb
 #ipdb.set_trace()

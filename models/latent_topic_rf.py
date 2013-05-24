@@ -217,7 +217,7 @@ class LatentTRF(GridCRF):
 
         y = np.argmax(scores)
         if return_energy:
-            return y, np.max(scores), h[y]
+            return (y, np.max(scores), h[y])
         return y
 
     def loss_augmented_inference(self, x, h, w, relaxed=False,
