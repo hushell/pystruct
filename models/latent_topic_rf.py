@@ -1,4 +1,5 @@
 import numpy as np
+import pylab as plt
 
 from .base import StructuredModel
 from .utils import crammer_singer_psi
@@ -174,6 +175,7 @@ class LatentTRF(GridCRF):
 
         pw = pw + pw.T - np.diag(np.diag(pw))  # make symmetric
 
+        # TODO: normalization
         psi_vector = np.hstack([unaries_acc.ravel(),
                                 pw[np.tri(self.n_states, dtype=np.bool)]])
         #return psi_vector
@@ -182,7 +184,7 @@ class LatentTRF(GridCRF):
         result[y,:] = psi_vector
         return result.ravel()
 
-    def inference(self, x, w, relaxed=None, return_energy=False):
+    def inference(self, x, w, relaxed=None, return_energy=False, unaries_only=False):
         """Inference for x using parameters w.
 
         Finds armin_y np.dot(w, psi(x, h)), i.e. best possible prediction.
@@ -205,15 +207,18 @@ class LatentTRF(GridCRF):
         #self.inference_calls += 1
 
         scores = np.zeros(self.n_classes)
-        h = np.zeros((self.n_classes, x.shape[1]*x.shape[2]), dtype=np.int) # h has been flatten already
+        h = np.zeros((self.n_classes, x.shape[0]*x.shape[1]), dtype=np.int) # h has been flatten already
         for i in xrange(self.n_classes):
-            h[i],_ = self.latent(x, i, w)
+            if unaries_only == False:
+                h[i],_ = self.latent(x, i, w)
+            else:
+                h[i],_ = self.latent_unary(x, i, w)
             scores[i] = np.dot(w, self.psi(x, (h[i],i)))
 
-        if return_energy:
-            return np.argmax(scores), np.max(scores)
         y = np.argmax(scores)
-        return (h[y], y)
+        if return_energy:
+            return y, np.max(scores), h[y]
+        return y
 
     def loss_augmented_inference(self, x, h, w, relaxed=False,
                                  return_energy=False):
@@ -269,6 +274,15 @@ class LatentTRF(GridCRF):
         h.astype(np.int)
         return (h, y)
 
+    def latent_unary(self, x, y, w):
+        unary_potentials = self.get_unary_potentials(x, y, w)
+        pairwise_potentials = np.ones((self.n_states, self.n_states))
+        edges = self.get_edges(x)
+        h = inference_dispatch(unary_potentials, pairwise_potentials, edges,
+                               self.inference_method, relaxed=False)
+        h.astype(np.int)
+        return (h, y)
+
     # TODO: continuous LOSS
     # TODO: lots of other tricks can be applied here instead of 0-1 loss
     def loss(self, h, h_hat):
@@ -298,8 +312,25 @@ class LatentTRF(GridCRF):
     def visual_topics(self, topics, cls, w):
         pass
 
-    def visual_topic_priors(self, cls, w):
-        pass
+    def visual_topic_priors(self, y, w):
+        unary_len = self.n_states * self.n_features + self.n_states;
+        pair_len = self.n_states * (self.n_states + 1) / 2
+        unary_params = w[y * (unary_len+pair_len) : (y+1) * (unary_len+pair_len) - pair_len].reshape(
+            self.n_states, self.n_features + 1)
+        prior = unary_params[:,-1]
+        xaxis = np.arange(1, self.n_states+1)
+        width = 1
+        plt.bar(xaxis, prior, width, color="y" )
 
-    def visual_topic_inter(self, cls, w):
-        pass
+    def visual_topic_inter(self, y, w):
+        unary_len = self.n_states * self.n_features + self.n_states;
+        pair_len = self.n_states * (self.n_states + 1) / 2
+        pairwise_flat = np.asarray(w[y * (unary_len+pair_len) + unary_len : (y+1) * (unary_len+pair_len)])
+        pairwise_params = np.zeros((self.n_states, self.n_states))
+        pairwise_params[np.tri(self.n_states, dtype=np.bool)] = pairwise_flat
+        pairwise_params = (pairwise_params + pairwise_params.T -
+                np.diag(np.diag(pairwise_params)))
+
+        cax = plt.matshow(pairwise_params )
+        plt.colorbar(cax)
+        plt.show()

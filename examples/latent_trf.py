@@ -28,11 +28,27 @@ for i in xrange(num1+num2):
 
 crf = LatentTRF(n_states = 4, n_classes = 2, n_features = 200)
 
-clf = LatentSubgradientSSVM(
-    model=crf, max_iter=500, C=10., verbose=2,
-    n_jobs=-1, learning_rate=0.1, show_loss_every=10)
+import pickle
 
-import ipdb
-ipdb.set_trace()
+try:
+    clf = pickle.load(open("clf.p", "rb"))
+except:
+    clf = LatentSubgradientSSVM(
+        model=crf, max_iter=500, C=10., verbose=2,
+        n_jobs=-1, learning_rate=0.1, show_loss_every=10)
+    clf.fit(X, Y)
 
-clf.fit(X, Y)
+#import ipdb
+#ipdb.set_trace()
+
+energies = np.ndarray(num1+num2)
+y_pred = np.ndarray(num1+num2)
+h_pred = np.ndarray(X.shape[:3])
+loss = 0
+
+for i in xrange(num1+num2):
+    print "predict image %d" % i
+    y_pred[i], energies[i], h_temp = crf.inference(X[i], clf.w, return_energy=True)
+    h_pred[i] = np.reshape(h_temp, X.shape[1:3])
+    if y_pred[i] != Y[i]:
+        loss = loss + 1
