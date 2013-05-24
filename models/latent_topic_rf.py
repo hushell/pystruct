@@ -295,3 +295,11 @@ class LatentTRF(GridCRF):
     #    y_org = self.label_from_latent(y)
     #    return GraphCRF.continuous_loss(self, y_org, y_hat_org)
 
+    def visual_topics(self, topics, cls, w):
+        pass
+
+    def visual_topic_priors(self, cls, w):
+        pass
+
+    def visual_topic_inter(self, cls, w):
+        pass
